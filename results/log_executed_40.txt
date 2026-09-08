@@ -1,0 +1,153 @@
+Loading 40 subjects, run_type=executed ...
+  S001R03: 15 trials
+  S001R07: 15 trials
+  S001R11: 15 trials
+  S002R03: 15 trials
+  S002R07: 15 trials
+  S002R11: 15 trials
+  S003R03: 15 trials
+  S003R07: 15 trials
+  S003R11: 15 trials
+  S004R03: 15 trials
+  S004R07: 15 trials
+  S004R11: 15 trials
+  S005R03: 15 trials
+  S005R07: 15 trials
+  S005R11: 15 trials
+  S006R03: 15 trials
+  S006R07: 15 trials
+  S006R11: 15 trials
+  S007R03: 15 trials
+  S007R07: 15 trials
+  S007R11: 15 trials
+  S008R03: 15 trials
+  S008R07: 15 trials
+  S008R11: 15 trials
+  S009R03: 15 trials
+  S009R07: 15 trials
+  S009R11: 15 trials
+  S010R03: 15 trials
+  S010R07: 15 trials
+  S010R11: 15 trials
+  S011R03: 15 trials
+  S011R07: 15 trials
+  S011R11: 15 trials
+  S012R03: 15 trials
+  S012R07: 15 trials
+  S012R11: 15 trials
+  S013R03: 15 trials
+  S013R07: 15 trials
+  S013R11: 15 trials
+  S014R03: 15 trials
+  S014R07: 15 trials
+  S014R11: 15 trials
+  S015R03: 15 trials
+  S015R07: 15 trials
+  S015R11: 15 trials
+  S016R03: 15 trials
+  S016R07: 15 trials
+  S016R11: 15 trials
+  S017R03: 15 trials
+  S017R07: 15 trials
+  S017R11: 15 trials
+  S018R03: 15 trials
+  S018R07: 15 trials
+  S018R11: 15 trials
+  S019R03: 15 trials
+  S019R07: 15 trials
+  S019R11: 15 trials
+  S020R03: 15 trials
+  S020R07: 15 trials
+  S020R11: 15 trials
+  S021R03: 15 trials
+  S021R07: 15 trials
+  S021R11: 15 trials
+  S022R03: 15 trials
+  S022R07: 15 trials
+  S022R11: 15 trials
+  S023R03: 15 trials
+  S023R07: 15 trials
+  S023R11: 15 trials
+  S024R03: 15 trials
+  S024R07: 15 trials
+  S024R11: 15 trials
+  S025R03: 15 trials
+  S025R07: 15 trials
+  S025R11: 15 trials
+  S026R03: 15 trials
+  S026R07: 15 trials
+  S026R11: 15 trials
+  S027R03: 15 trials
+  S027R07: 15 trials
+  S027R11: 15 trials
+  S028R03: 15 trials
+  S028R07: 15 trials
+  S028R11: 15 trials
+  S029R03: 15 trials
+  S029R07: 15 trials
+  S029R11: 15 trials
+  S030R03: 15 trials
+  S030R07: 15 trials
+  S030R11: 15 trials
+  S031R03: 15 trials
+  S031R07: 15 trials
+  S031R11: 15 trials
+  S032R03: 15 trials
+  S032R07: 15 trials
+  S032R11: 15 trials
+  S033R03: 15 trials
+  S033R07: 15 trials
+  S033R11: 15 trials
+  S034R03: 14 trials
+  S034R07: 14 trials
+  S034R11: 14 trials
+  S035R03: 15 trials
+  S035R07: 15 trials
+  S035R11: 15 trials
+  S036R03: 15 trials
+  S036R07: 15 trials
+  S036R11: 15 trials
+  S037R03: 14 trials
+  S037R07: 14 trials
+  S037R11: 14 trials
+  S038R03: 15 trials
+  S038R07: 15 trials
+  S038R11: 15 trials
+  S039R03: 15 trials
+  S039R07: 15 trials
+  S039R11: 15 trials
+  S040R03: 15 trials
+  S040R07: 15 trials
+  S040R11: 15 trials
+Loaded X=(1794, 64, 160) y=(1794,) in 3.4s
+Class balance: left=904 right=890
+
+Running within-subject CV ...
+=== within-subject CV ===
+n_subjects_evaluated = 40
+mean accuracy        = 0.579
+std                   = 0.122
+min / max             = 0.400 / 0.933
+
+Running leave-one-subject-out CV ...
+=== LOSO (real labels) ===
+n_subjects_evaluated = 40
+mean accuracy        = 0.543
+std                   = 0.070
+min / max             = 0.467 / 0.778
+confusion matrix (rows=true [left,right], cols=pred) =
+[[508 396]
+ [423 467]]
+
+Running LOSO with permuted labels (baseline) ...
+=== LOSO (permuted labels, baseline) ===
+n_subjects_evaluated = 40
+mean accuracy        = 0.478
+std                   = 0.048
+min / max             = 0.333 / 0.578
+confusion matrix (rows=true [left,right], cols=pred) =
+[[506 398]
+ [539 351]]
+
+Wrote /Users/victorha/Downloads/FA26/results/results_executed_40.json
+Wrote /Users/victorha/Downloads/FA26/results/model_executed_40.joblib

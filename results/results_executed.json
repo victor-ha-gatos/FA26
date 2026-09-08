@@ -1,0 +1,33 @@
+{
+  "config": {
+    "subjects": "1-6",
+    "run_type": "executed",
+    "n_components": 4,
+    "loso_only": true,
+    "skip_permutation": true,
+    "tag": null
+  },
+  "n_trials": 270,
+  "n_subjects": 6,
+  "loso": {
+    "per_subject": {
+      "1": 0.4,
+      "2": 0.4888888888888889,
+      "3": 0.5555555555555556,
+      "4": 0.5777777777777777,
+      "5": 0.5111111111111111,
+      "6": 0.4444444444444444
+    },
+    "mean": 0.4962962962962963,
+    "confusion_matrix": [
+      [
+        89,
+        46
+      ],
+      [
+        90,
+        45
+      ]
+    ]
+  }
+}
