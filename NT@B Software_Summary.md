@@ -250,8 +250,42 @@ for the saved pipelines predict.py loads.
   subject idiosyncrasies once shrinkage-regularized; it's just that the
   cross-subject signal itself is weak.
 
+## Deep Dive into Model: CSP + LDA
+### CSP: Common Spatial Patterns
+CSP finds a set of spatial filters - linear combinations of the 64 channels/electrodes  such that when you look at the variance of the resulting signal:
+
+  - One filter's output has maximum variance for class A and minimum variance for class B
+  - Another filter's output has the opposite: maximum for B, minimum for A
+
+To apply a weighted sum of 64 channels, you need a filter of length = 64 so each of 64 filter coefficients weighs one channel. To build a covariance matrix, the filter shape is 64x64.
+csp.filters_.shape is fixed to (64, 64) because of the 64 channels in input data.
+That means, there are 64 separate candidate filters (each of length = 64) being trained.
+CSP learns this 64x64 filter (spatial covariance matrix) from training.
+
+Interface: 
+  - Input: all training trials' 64×64 spatial covariance matrices (per class)
+  - Output: csp.filters_, the full 64×64 eigenvector matrix — this is the thing that gets computed via eigendecomposition, and yes, this is genuinely "learned from data" (the eigenvectors depend entirely on your specific training trials' covariance structure).
+  - Only the top+bottom 4 rows (n_components=4) are kept and used going forward.
+
+Parameters:
+  1. Out of the 64 separate filters, only 4 filters are used by setting n_components. This keeps the top 2 filters from each end of the spectrum (2 "most left-favoring" + 2 "most right-favoring"). Each of the 64 raw channels gets collapsed down to just 4 new virtual channels — each one a specific weighted combination of electrodes designed to separate the two classes by variance.
+
+  2. log=True: after applying the filters, CSP takes the log-variance of each of the 4 filtered signals as the actual feature — 4 numbers per trial. Log-variance is used (rather than raw variance) because band-power values are typically log-normally distributed; this makes the LDA's linear-boundary assumption more valid.
+
+  3. reg='ledoit_wolf': CSP's math needs to estimate a 64x64 covariance matrix from each trial's data. With only ~160 time samples per trial (after cropping to the 1-2s analysis window) and 64 channels, that covariance estimate is numerically unstable - Ledoit-Wolf shrinkage pulls the estimate toward a better-conditioned matrix, stabilizing it.
+
+### LDA: Linear Discriminant Analysis
+LDA does the actual classification: it finds a single straight-line (hyperplane, in 4D) boundary that best separates the two classes' 4-dimensional feature points (n_components = 4), assuming both classes are Gaussian-distributed with the same covariance.
+
+Interface:
+  - Input: every training trial's 4 CSP log-variance numbers, plus its true label
+  - Output: lda.coef_, shape (1, 4) — 4 numbers, one weight per CSP feature — plus lda.intercept_, a single bias term
+  - This defines a linear decision rule: score = 0.0063·f1 - 0.1455·f2 + 0.2890·f3 - 0.1094·f4 - 0.1191, and the predicted class is whichever side of zero that score lands on.
+
 ## What I have NOT yet done (ToDo)
 - [ ] Experiment with different number of subjects to train, different values of run_type
+- [ ] CSP learns 64x64 matrix, but selects only top 4 filters from it by setting n_components = 4.    
+      Experiment with this value and see it affects the accuracy of the model.
 - [ ] Scale LOSO to the full 109 subjects (currently n=40, chosen for
       turnaround time in this pass — training + evaluating all 109 with
       full LOSO is ~3x this runtime; queued as a follow-up run).
