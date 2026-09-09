@@ -38,7 +38,7 @@ from __future__ import annotations
 import numpy as np
 from sklearn.base import clone
 from sklearn.metrics import accuracy_score, confusion_matrix
-from sklearn.model_selection import GroupKFold, ShuffleSplit
+from sklearn.model_selection import GroupKFold, GroupShuffleSplit, ShuffleSplit
 
 
 def within_subject_cv(build_pipeline_fn, X, y, groups, n_splits=5, random_state=42):
@@ -110,6 +110,55 @@ def group_kfold_cv(build_pipeline_fn, X, y, groups, n_splits=5):
         accs.append(accuracy_score(y[test_idx], preds))
         cm_total += confusion_matrix(y[test_idx], preds, labels=[0, 1])
     return {"fold_accuracies": accs, "mean": float(np.mean(accs)), "confusion_matrix": cm_total.tolist()}
+
+
+def subject_split_cv(
+    build_pipeline_fn,
+    X,
+    y,
+    groups,
+    train_size=0.8,
+    n_splits=10,
+    random_state=0,
+):
+    """Subject-level train/test split at a configurable ratio, repeated
+    n_splits times with different random subject partitions.
+
+    Unlike within_subject_cv (splits trials within a subject) and unlike
+    full leave_one_subject_out (always holds out exactly one subject),
+    this lets you directly control what fraction of *subjects* go into
+    training vs. testing -- e.g. train_size=0.5 for a 50/50 subject split,
+    train_size=0.9 for a 90/10 split. Useful for studying how accuracy and
+    its variance change as the number of training subjects shrinks or
+    grows -- fewer training subjects should generalize worse and show
+    higher fold-to-fold variance if the model is subject-sensitive.
+
+    Returns fold-level accuracies (one per repeat) plus the mean/std, and
+    how many subjects were in train vs. test for each fold.
+    """
+    gss = GroupShuffleSplit(n_splits=n_splits, train_size=train_size, random_state=random_state)
+    fold_results = []
+    for train_idx, test_idx in gss.split(X, y, groups):
+        pipe = clone(build_pipeline_fn())
+        pipe.fit(X[train_idx], y[train_idx])
+        preds = pipe.predict(X[test_idx])
+        acc = accuracy_score(y[test_idx], preds)
+        fold_results.append(
+            {
+                "accuracy": float(acc),
+                "n_train_subjects": int(len(np.unique(groups[train_idx]))),
+                "n_test_subjects": int(len(np.unique(groups[test_idx]))),
+                "n_train_trials": int(len(train_idx)),
+                "n_test_trials": int(len(test_idx)),
+            }
+        )
+    accs = [f["accuracy"] for f in fold_results]
+    return {
+        "train_size": train_size,
+        "folds": fold_results,
+        "mean": float(np.mean(accs)),
+        "std": float(np.std(accs)),
+    }
 
 
 def summarize(results: dict, title: str = "") -> str:

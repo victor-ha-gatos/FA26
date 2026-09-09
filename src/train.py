@@ -19,9 +19,15 @@ from pathlib import Path
 
 import numpy as np
 
-from data import build_dataset
+from data import build_dataset, BAD_SUBJECTS
 from model import build_pipeline
-from evaluate import within_subject_cv, leave_one_subject_out, group_kfold_cv, summarize
+from evaluate import (
+    within_subject_cv,
+    leave_one_subject_out,
+    group_kfold_cv,
+    subject_split_cv,
+    summarize,
+)
 
 RESULTS_DIR = Path(__file__).resolve().parent.parent / "results"
 
@@ -45,13 +51,34 @@ def main():
     ap.add_argument("--loso_only", action="store_true", help="skip within-subject CV (slow for many subjects)")
     ap.add_argument("--skip_permutation", action="store_true")
     ap.add_argument("--tag", default=None, help="label for output files; defaults to run_type")
+    ap.add_argument(
+        "--exclude_bad",
+        action="store_true",
+        help="exclude known bad subjects (88, 89, 92, 100, 104 -- see data.py BAD_SUBJECTS)",
+    )
+    ap.add_argument(
+        "--exclude_subjects",
+        default=None,
+        help="comma-separated subject IDs to exclude, e.g. 88,92,100 (in addition to --exclude_bad)",
+    )
+    ap.add_argument(
+        "--train_ratios",
+        default=None,
+        help="comma-separated subject-level train fractions to test, e.g. 0.5,0.7,0.8,0.9 "
+        "(runs subject_split_cv at each ratio; skipped if not given)",
+    )
     args = ap.parse_args()
 
     subjects = parse_subjects(args.subjects)
+    exclude = set(BAD_SUBJECTS) if args.exclude_bad else set()
+    if args.exclude_subjects:
+        exclude |= {int(s) for s in args.exclude_subjects.split(",")}
     tag = args.tag or args.run_type
     print(f"Loading {len(subjects)} subjects, run_type={args.run_type} ...")
+    if exclude:
+        print(f"Excluding subjects: {sorted(exclude)}")
     t0 = time.time()
-    ds = build_dataset(subjects, run_type=args.run_type)
+    ds = build_dataset(subjects, run_type=args.run_type, exclude_subjects=exclude)
     print(f"Loaded X={ds.X.shape} y={ds.y.shape} in {time.time()-t0:.1f}s")
     print(f"Class balance: left={np.sum(ds.y==0)} right={np.sum(ds.y==1)}")
 
@@ -76,6 +103,19 @@ def main():
         loso_perm = leave_one_subject_out(pipeline_fn, ds.X, ds.y, ds.groups, shuffle_labels=True)
         print(summarize(loso_perm, "LOSO (permuted labels, baseline)"))
         out["loso_permuted"] = loso_perm
+
+    if args.train_ratios:
+        ratio_results = {}
+        for ratio_str in args.train_ratios.split(","):
+            ratio = float(ratio_str)
+            print(f"\nRunning subject-level train/test split, train_size={ratio} ...")
+            res = subject_split_cv(pipeline_fn, ds.X, ds.y, ds.groups, train_size=ratio)
+            print(
+                f"  train_size={ratio}: mean={res['mean']:.3f} std={res['std']:.3f} "
+                f"(over {len(res['folds'])} folds)"
+            )
+            ratio_results[ratio_str] = res
+        out["train_ratio_sweep"] = ratio_results
 
     RESULTS_DIR.mkdir(exist_ok=True)
     out_path = RESULTS_DIR / f"results_{tag}.json"

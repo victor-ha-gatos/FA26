@@ -12,13 +12,25 @@ Run semantics (from the dataset docs and confirmed by inspecting annotations):
 T0 in every run marks rest and is dropped for this task -- we only classify
 left fist vs. right fist trials.
 
-A handful of subjects (88, 89, 92, 100, 104) were recorded at 128 Hz instead
-of 160 Hz, and/or have a different number of samples per trial. We resample
-everything to a common rate so channel counts/feature shapes stay consistent
-across subjects. See ToDo.md, "Known data-quality issues".
+Known bad/anomalous subjects (confirmed by scanning all 109 subjects x 6
+runs directly -- sfreq, channel count, and T1/T2 event count per run):
+    88, 92, 100 : recorded at 128 Hz instead of 160 Hz, AND an abnormal
+                  number of T1/T2 events per run (19, 19, 12 respectively,
+                  vs. the expected 14-15) -- these look like a different
+                  recording/annotation protocol, not just a sample-rate
+                  quirk. Resampling alone does not fix the event-count
+                  mismatch.
+    89          : run 3 only has 22 T1/T2 events (vs. expected 14-15).
+    104         : run 8 only has 13 T1/T2 events (vs. expected 14-15).
+No channel-count anomalies or unreadable files were found anywhere in the
+654 relevant EDF files (109 subjects x runs 3,4,7,8,11,12).
+These five subjects (88, 89, 92, 100, 104) can be excluded via the
+`exclude_subjects` argument to `build_dataset()` -- see ToDo.md /
+Summary.md, "Known data-quality issues", for how this was determined.
 """
 from __future__ import annotations
 
+import os
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
@@ -30,13 +42,36 @@ import numpy as np
 mne.set_log_level("ERROR")
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
-DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+
+def _default_data_dir() -> Path:
+    """Locate the EEGMMIDB data/ folder.
+
+    Checks, in order: $FA26_DATA_DIR env var, FA26/data (original layout),
+    then the parent of FA26/ (in case data/ was moved out of the project
+    folder, as happened during manual reorganization of this project).
+    """
+    env = os.environ.get("FA26_DATA_DIR")
+    if env:
+        return Path(env)
+    project_root = Path(__file__).resolve().parent.parent
+    candidates = [project_root / "data", project_root.parent / "data"]
+    for c in candidates:
+        if c.exists():
+            return c
+    return candidates[0]  # fall back to original default even if missing
+
+
+DATA_DIR = _default_data_dir()
 
 RUNS_EXECUTED = (3, 7, 11)
 RUNS_IMAGINED = (4, 8, 12)
 
 TARGET_SFREQ = 160.0  # common sample rate; a few subjects were recorded at 128 Hz
 EVENT_ID = {"left_fist": 1, "right_fist": 2}  # T1 -> left, T2 -> right (see above)
+
+# Subjects with confirmed data-quality problems (see module docstring).
+# Not excluded by default -- callers opt in via exclude_subjects=BAD_SUBJECTS.
+BAD_SUBJECTS = {88, 89, 92, 100, 104}
 
 RunType = Literal["executed", "imagined", "both"]
 
@@ -119,6 +154,7 @@ def build_dataset(
     crop: tuple[float, float] = (1.0, 2.0),
     l_freq: float = 7.0,
     h_freq: float = 30.0,
+    exclude_subjects: Iterable[int] | None = None,
     verbose: bool = True,
 ) -> Dataset:
     """Load and epoch every requested run for every subject.
@@ -128,12 +164,22 @@ def build_dataset(
     following the standard MNE CSP tutorial. The wider [tmin, tmax] window
     is kept in the returned metadata in case a sliding-window analysis is
     wanted later.
+
+    exclude_subjects: subject IDs to skip entirely, e.g. BAD_SUBJECTS to
+    drop the known 128 Hz / abnormal-trial-count subjects (88, 89, 92, 100,
+    104). Pass exclude_subjects=BAD_SUBJECTS to exclude all five; pass a
+    custom set/list for finer control.
     """
+    exclude = set(exclude_subjects) if exclude_subjects else set()
     all_X, all_y, all_groups, all_run_type = [], [], [], []
     ch_names_ref, sfreq_ref = None, None
     runs = _runs_for(run_type)
 
     for subj in subjects:
+        if subj in exclude:
+            if verbose:
+                print(f"  [exclude] S{subj:03d} (in exclude_subjects)")
+            continue
         for run in runs:
             path = subject_run_path(subj, run, data_dir)
             if not path.exists():
