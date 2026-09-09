@@ -1,4 +1,4 @@
-# FA26 — Left vs. Right Fist EEG Classification: Notes, Status, ToDo
+# FA26 — Left vs. Right Fist EEG Classification
 
 ## What this is
 Working notes for the FA26 recruitment challenge (motor imagery/execution,
@@ -21,10 +21,12 @@ open-questions list the challenge asks for ("log your attempts").
 - **This task only uses T1/T2 trials, never T0 (rest)** — the assignment
   is left-fist-vs-right-fist, not fist-vs-rest.
 
-### Known data-quality issues (found by inspection, not assumed)
-- Subjects **88, 92, 100** are recorded at **128 Hz**, not 160 Hz, and/or
-  have a different trial duration (checked S088/S092/S100 vs. others).
-  Handled by resampling every file to 160 Hz in `data.py::load_raw`.
+### Known data-quality issues
+- S088: recorded at 128 Hz instead of 160 Hz, with 19 trials instead of 15, and irregular trial durations (1.38-5.12s vs. a consistent ~4.1s)
+- S092: recorded at 128 Hz instead of 160 Hz, with 19 trials instead of 15, and irregular trial durations (1.38-5.12s vs. a consistent ~4.1s)
+- S100: recorded at 128 Hz instead of 160 Hz, with 12 trials instead of 15, each abnormally long (~5.1s vs. ~4.1s)
+- S089: run duration is 181s instead of the standard 125s, with 22 trials instead of 15
+- S104: run duration is 106s instead of the standard 125s, with 13 trials instead of 15
 - Trial counts per run are not always exactly 15 (e.g., S034/S037 executed
   runs have 14 trials instead of 15) — handled naturally since the loader
   counts actual annotations rather than assuming a fixed count.
@@ -34,8 +36,7 @@ open-questions list the challenge asks for ("log your attempts").
   groups using this dataset; I have not cross-checked against those
   reports.
 
-## Data - Deep Dive
-### Folder Structure
+## Folder Structure
 data/ \
 |-- ANNOTATORS                    \
 |-- RECORDS                       \
@@ -47,7 +48,7 @@ data/ \
 |-- ...                           \
 |--  S109/  ... (same pattern)
 
-### Files
+## Files
 For this project, only Runs # 3, 4, 7, 8, 11, and 12 are used.
 
 | Run | Task | Condition | Subjects (.edf files) | .edf.event files | 
@@ -67,9 +68,9 @@ For this project, only Runs # 3, 4, 7, 8, 11, and 12 are used.
 
 .edf.event: Separate Annotations (e.g., T1: Left Fist, T2: Right Fist)
 
-### Data Visualization
+## Data Values
 - Digital Value: 
-  - Each raw digitaized signal sample (16bit signed intger) stored in edf file is a measurement value from the EEG electrode
+  - Each raw digitized signal sample (16bit signed integer) stored in edf file is a measurement value from the EEG electrode
     - An electrode picks up electrical potential from neural activity
     - Amplifier boosts the signal
     - Anti-aliasing Filter is applied to prepare for conversion to digital values
@@ -97,43 +98,119 @@ For this project, only Runs # 3, 4, 7, 8, 11, and 12 are used.
   - source .venv/bin/activate
 
 ## Pipeline (`src/`)
-- `data.py` 
-  - loads EDF files
-  - standardizes channel names/montage
-  - resamples to 160Hz (For subjects 88, 92, and 100 that were sampled at 120Hz)
-  - band-pass filters 7-30 Hz (mu+beta rhythms - where sensorimotor ERD/ERS during fist movement/imagery shows up)
-  - epochs on T1/T2 only (tmin=-1s, tmax=4s around cue)
-  - crops to a 1-2s post-cue window for CSP fitting (standard MNE-tutorial window, avoids cue-onset transient and movement/imagery offset).
-- `model.py` — `CSP(n_components=4, reg='ledoit_wolf', log=True) -> LDA`.
-  CSP finds spatial filters maximizing between-class variance ratio, which
-  is the right primitive here because the physiological signal (ERD/ERS)
-  is a *band-power* (variance) effect, not a mean-amplitude effect.
-  Ledoit-Wolf shrinkage regularizes the 64x64 spatial covariance, which is
-  numerically unstable to estimate from ~160 time samples per trial without it.
-- `evaluate.py` — three evaluation regimes (see "Evaluation design" below).
-- `train.py` — orchestrates load -> evaluate -> save model + json results.
-- `predict.py` — deliverable #2: `predict_edf(model_path, edf_path)` /
-  CLI. Loads a saved model, epochs a raw EDF the same way as training, and
-  returns per-trial predicted left/right fist labels; reports accuracy if
-  the file's own T1/T2 labels are available for a live check.
-- `plot_results.py` — per-subject accuracy scatter (real vs. permuted
-  labels), saved to `results/loso_accuracy.png`.
 
-## Evaluation design (why three regimes, not one number)
+### `data.py`
+| Function | What it does |
+|---|---|
+| `_runs_for(run_type)` | Maps `"executed"`/`"imagined"`/`"both"` to the corresponding run numbers (3,7,11 / 4,8,12 / all six) |
+| `subject_run_path(subject, run, data_dir)` | Builds the file path for a given subject+run, e.g. `data/S001/S001R04.edf` |
+| `load_raw(subject, run, data_dir)` | Reads one EDF file, standardizes channel names/montage, resamples to 160 Hz if needed |
+| `raw_to_epochs(raw, tmin, tmax, l_freq, h_freq)` | Bandpass-filters (7-30 Hz) and epochs a loaded `raw` object into T1/T2 trials |
+| `build_dataset(subjects, run_type, ...)` | Loops over many subjects/runs, calls `load_raw`+`raw_to_epochs` on each, crops to 1-2s window, stacks everything into one `Dataset` |
+| `Dataset` (dataclass) | Container for the final `X`, `y`, `groups`, and metadata returned by `build_dataset` |
+
+### `model.py`
+| Function | What it does |
+|---|---|
+| `build_pipeline(n_components, reg)` | Constructs a scikit-learn `Pipeline`: `CSP` (spatial filtering) → `LinearDiscriminantAnalysis` (classifier) |
+
+### `evaluate.py`
+| Function | What it does |
+|---|---|
+| `within_subject_cv(build_pipeline_fn, X, y, groups, ...)` | Per-subject 5-fold shuffled CV (train/test trials from the same subject) — optimistic upper bound |
+| `leave_one_subject_out(build_pipeline_fn, X, y, groups, shuffle_labels, ...)` | Trains on N-1 subjects, tests on the held-out one, repeats for all subjects; `shuffle_labels=True` runs the permutation-baseline control |
+| `group_kfold_cv(build_pipeline_fn, X, y, groups, n_splits)` | Faster stand-in for LOSO — folds respect subject grouping but hold out several subjects per fold at once |
+| `summarize(results, title)` | Formats a results dict (mean/std/min/max, confusion matrix) into a printable string |
+
+### `train.py`
+| Function | What it does |
+|---|---|
+| `parse_subjects(spec)` | Parses a CLI string like `"1-40"` or `"1,2,5-10"` into a list of subject IDs |
+| `main()` | Orchestrates the full experiment: parses args → `build_dataset()` → runs within-subject CV, LOSO, and permutation baseline → writes JSON results → fits and saves a final model (`.joblib`) on all loaded data |
+
+### `predict.py`
+| Function | What it does |
+|---|---|
+| `predict_edf(model_path, edf_path)` | Loads a saved model + one raw EDF, preprocesses it the same way as training (`raw_to_epochs`), aligns channels, and returns per-trial predictions (plus true labels if available) |
+| `main()` | CLI entry point: parses `--model`/`--edf` args, calls `predict_edf`, prints per-trial results and overall accuracy if ground truth is present |
+
+### `plot_results.py`
+| Function | What it does |
+|---|---|
+| No functions | Loads `results_executed_40.json`/`results_imagined_40.json` |
+|              | Builds a two-panel scatter plot of per-subject LOSO accuracy (real vs. permuted labels) |
+|              | Saves `results/loso_accuracy.png` |
+
+
+## Roles  
+- `data.py`:    shared toolkit; how to turn a raw EDF into model-ready trials.
+- `model.py`:   definition of what the model architecture is.
+- `evaluate.py`: how to honestly measure accuracy given a dataset and a trained model.
+- `train.py`:   run the whole training + evaluation experiment end-to-end.
+- `predict.py`: test the trained model. it classifies one new file with an already-trained model.
+- `plot_results.py`: turn saved results from training + evaluation into a figure (not from predict.py)
+
+## How to Run
+1. Run Training
+  - .venv/bin/python src/train.py --subjects 1-40 --run_type executed --tag executed_40
+  - .venv/bin/python src/train.py --subjects 1-40 --run_type imagined --tag imagined_40
+  - .venv/bin/python src/train.py --subjects 1-109 --run_type executed --loso_only --tag executed_full
+  
+  - The training dataset can be selected using the --subjects flag
+    - To select non-consecutive subjects for training, use ***--subjects 1-10, 33, 50-55***
+
+  - To remove the 5 bad datasets from training, set the --exclude_bad flag, for example,
+    - .venv/bin/python src/train.py --subjects 1-40 --run_type imagined --exclude_bad --tag imagined_40
+
+  - During training, the data (selected by the --subjects flag) is divided into 2 sets, training set and evaluation set.
+    - The training set is used to train the model.
+    - The evaluation set is used to evaluate the accuracy of the trained model.
+    - We want the evaluation set to be different from the training set so that we don't cheat (test on the training set)
+    - We can dictate how much data is used for training and how much for evaluation using the --train_ratios flag.
+    - for example, if you set --train_ratios 0.8, then 80% of the data will be used for training and 20% for evaluation
+    - Run ***.venv/bin/python src/train.py --subjects 1-40 --run_type imagined --exclude_bad --train_ratios 0.8 --tag imagined_40***
+
+  - You can train the model with both "executed" and "imagined" signals ***--run_type both***
+    - This will include all of 6 runs (3 executed and 3 imagined) from each subject
+    - This design does not allow you to choose from the 6 runs in each subject
+    - To test different combinations of training sets between executed and imagined, you set --run_type to both and then select list of subjects to train with
+
+  - Training produces two files
+    - A JSON File: /results/results_<tag>.json
+    - Trained Model: /results/model_<tag>.joblib
+
+2. Run Inference (Prediction)
+  - After your model is trained, you can test it by running it with a new input data
+  - Your trained model from Step #1 above is a joblib file (e.g., model_executed_40.joblib)
+  - Your test input data is an edf file (e.g., S050R03.edf)
+  - Run: .venv/bin/python src/predict.py --model results/model_executed_40.joblib --edf data/S050/S050R03.edf
+  
+  - Prediction prints out the classification result: left_fist or right_fist
+  - Subjects that were not included in the training session via --subjects can be used for inference tests
+    - These are not used for model training, so there is no over-fitting (it's cheating to train and test on the same data)
+    - For example, if you ran ***train.py --subjects 1-89***, then all subjects 90-109 are free to use for inference
+
+3. Visualize Trained Model
+  - Visualize accuracy evaluation result of the trained model from 
+    - results/results_executed_40.json
+    - results/results_imagined_40.json
+  - Run ***.venv/bin/python src/plot_results.py***
+
+## Evaluation Design (why 3 regimes, not one number)
 1. **Within-subject CV** (`ShuffleSplit`, 80/20, 5 repeats, per subject):
    most optimistic number. CSP/LDA get to fit that person's exact head
    geometry/noise. Useful as an upper bound, not as evidence of
    generalization.
 2. **Leave-one-subject-out (LOSO)**: fit on N-1 subjects, test on the held
    out one, repeated for all subjects. This is the number that matters for
-   "does this work on a new person" — the framing the prompt cares about.
+   "does this work on a new person" - the framing the prompt cares about.
 3. **Permutation baseline**: same LOSO procedure, but labels shuffled
    *within each subject* before fitting (preserves per-subject class
-   balance, breaks the left/right correspondence). If real ≈ permuted,
+   balance, breaks the left/right correspondence). If real is close to permuted,
    the real number isn't measuring left-vs-right content.
 
 All subject-grouped splits use subject IDs as groups so no subject's
-trials appear in both train and test in the same fold — the single most
+trials appear in both train and test in the same fold - the single most
 important control here, since within-subject leakage (same head, same
 session noise) is confounded with the fist label unless explicitly split
 out.
@@ -174,6 +251,7 @@ for the saved pipelines predict.py loads.
   cross-subject signal itself is weak.
 
 ## What I have NOT yet done (ToDo)
+- [ ] Experiment with different number of subjects to train, different values of run_type
 - [ ] Scale LOSO to the full 109 subjects (currently n=40, chosen for
       turnaround time in this pass — training + evaluating all 109 with
       full LOSO is ~3x this runtime; queued as a follow-up run).
